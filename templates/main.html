@@ -28,333 +28,53 @@
     <link href="static/vendor/simple-datatables/style.css" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
+    <script src="static/vendor/simple-datatables/simple-datatables.js"></script>
+
     <!-- Template Main CSS File -->
     <link href="static/css/style.css" rel="stylesheet">
+       <style>
+        td {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px; /* 원하는 최대 너비로 설정 */
+        }
+    </style>
     <script>
-        function setCookie(name, value, days) {
-            const d = new Date();
-            d.setTime(d.getTime() + (days*24*60*60*1000));
-            const expires = "expires="+ d.toUTCString();
-            document.cookie = name + "=" + value + ";" + expires + ";path=/";
-        }
-
-        function getCookie(name) {
-            const cname = name + "=";
-            const decodedCookie = decodeURIComponent(document.cookie);
-            const ca = decodedCookie.split(';');
-            for(let i = 0; i < ca.length; i++) {
-                let c = ca[i];
-                while (c.charAt(0) == ' ') {
-                    c = c.substring(1);
-                }
-                if (c.indexOf(cname) == 0) {
-                    return c.substring(cname.length, c.length);
-                }
-            }
-            return "";
-        }
-
-
-
-        let SendStatus = true;
-
-        function addEmailsToTable(emails) {
-            const table = document.getElementById('EmailReceive');
-            const tbody = document.createElement('tbody');
-
-            emails.forEach(email => {
-                const row = document.createElement('tr');
-                const cell = document.createElement('td');
-                cell.textContent = email;
-                row.appendChild(cell);
-                tbody.appendChild(row);
-            });
-
-            // Clear existing rows (if any) before adding new ones
-            if (table.tBodies.length > 0) {
-                table.removeChild(table.tBodies[0]);
-            }
-            table.appendChild(tbody);
-        }
-
-        function submitForm() {
-            const formFile = document.getElementById('formFile').files[0];
-
-            if (!formFile) {
-                alert("파일을 선택해 주세요.");
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', formFile);
-
-            fetch('/upload', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        addEmailsToTable(data.emails);
-                    } else {
-                        alert(`오류: ${data.message}`);
-                    }
-                })
-                .catch(error => {
-                    console.error('오류:', error);
-                    alert('파일 업로드 중 오류가 발생했습니다.');
-                });
-        }
-
-        function removeEmailsFromTable(emails) {
-            const table = document.getElementById('EmailReceive');
-            const rows = table.getElementsByTagName('tr');
-
-            // 테이블에서 이메일 제거
-            for (let i = rows.length - 1; i >= 0; i--) {
-                const row = rows[i];
-                if (row.cells.length > 0) {
-                    const email = row.cells[0].textContent.trim();
-                    if (emails.includes(email)) {
-                        table.deleteRow(i);
-                    }
-                }
-            }
-        }
-
-        function downloadSample() {
-            window.location.href = 'static/샘플엑셀.xlsx';
-        }
-
-        function getEmailsFromTable() {
-            const table = document.getElementById('EmailReceive');
-            const emails = [];
-            for (let row of table.getElementsByTagName('tr')) {
-                if (row.cells.length > 0) {
-                    emails.push(row.cells[0].textContent.trim());
-                }
-            }
-            return emails;
-        }
-
-        function sendEmailsInBatches(emails, batchSize, formData , SmtpCount) {
-            const totalEmails = emails.length;
-            let index = 0;
-
-            function sendBatch() {
-                if (index >= totalEmails) {
-                    alert('총 '+totalEmails+'개의 메일이 발송 되었습니다.');
-                    return;
-                }
-
-                const batchEmails = emails.slice(index, index + batchSize);
-                formData.MailReceive = batchEmails;
-                formData.SmtpNo = index % SmtpCount;
-
-
-                $.ajax({
-                    type: 'POST',
-                    url: '/send_email',
-                    contentType: 'application/json',
-                    data: JSON.stringify(formData),
-                    success: function (response) {
-                        if (response.status === 'success') {
-                            console.log(`Batch ${index / batchSize + 1} sent successfully`);
-                            index += batchSize;
-
-                            $("#ResultPanel").append(`
-                              <div class="alert alert-success alert-dismissible fade show" role="alert">
-                                 총 `+totalEmails+`개의 메일중 `+index+`개의 메일이 발송 되었습니다.
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                              </div>
-                            `);
-                            removeEmailsFromTable(batchEmails); // 테이블에서 성공한 이메일 제거
-                            if(SendStatus == true){
-                                sendBatch();
-                            }
-                        } else {
-                            $("#ResultPanel").append(`
-                              <div class="alert alert-danger bg-danger text-light border-0 alert-dismissible fade show" role="alert">
-                                 총 `+totalEmails+`개의 메일중 `+index+`개의 메일 발송중 에러가 발생하였습니다. ${response.message}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                              </div>
-                            `);
-                        }
-                    },
-                    error: function (xhr, status, error) {
-                        $("#ResultPanel").append(`
-                          <div class="alert alert-danger bg-danger text-light border-0 alert-dismissible fade show" role="alert">
-                             총 `+totalEmails+`개의 메일중 `+index+`개의 메일 발송중 에러가 발생하였습니다.
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                          </div>
-                        `);
-                    }
-                });
-            }
-
-            sendBatch();
-        }
-
-        function generateSMTPFields(count) {
-            const container = document.getElementById('smtpContainer');
-            for (let i = 0; i < count; i++) {
-                const row = document.createElement('div');
-                row.className = 'row';
-                row.style = 'margin-top:20px;';
-                const col1 = document.createElement('div');
-                col1.className = 'col-sm-6';
-                const col2 = document.createElement('div');
-                col2.className = 'col-sm-6';
-                const formFloating1 = document.createElement('div');
-                formFloating1.className = 'form-floating';
-                const formFloating2 = document.createElement('div');
-                formFloating2.className = 'form-floating';
-                const input1 = document.createElement('input');
-                input1.type = 'email';
-                input1.className = 'form-control';
-                input1.id = `SMTP_USER${i}`;
-                input1.placeholder = `SMTP 계정 ID ${i}`;
-                const label1 = document.createElement('label');
-                label1.htmlFor = `SMTP_USER${i}`;
-                label1.textContent = `SMTP 계정 ID ${i}`;
-                const input2 = document.createElement('input');
-                input2.type = 'password';
-                input2.className = 'form-control';
-                input2.id = `SMTP_PASSWORD${i}`;
-                input2.placeholder = `SMTP 계정 PW ${i}`;
-                const label2 = document.createElement('label');
-                label2.htmlFor = `SMTP_PASSWORD${i}`;
-                label2.textContent = `SMTP 계정 PW ${i}`;
-
-                formFloating1.appendChild(input1);
-                formFloating1.appendChild(label1);
-                formFloating2.appendChild(input2);
-                formFloating2.appendChild(label2);
-                col1.appendChild(formFloating1);
-                col2.appendChild(formFloating2);
-                row.appendChild(col1);
-                row.appendChild(col2);
-                container.appendChild(row);
-            }
-        }
-
         $(document).ready(function () {
-            generateSMTPFields(10);
-            var MailEditor1 = new Quill("#MailContent1", {
-                modules: {
-                    toolbar: [
-                        [{ font: [] }, { size: [] }],
-                        ["bold", "italic", "underline", "strike"],
-                        [{ color: [] }, { background: [] }],
-                        [{ script: "super" }, { script: "sub" }],
-                        [{ list: "ordered" }, { list: "bullet" }, { indent: "-1" }, { indent: "+1" }],
-                        ["direction", { align: [] }],
-                        ["link"],
-                        ["clean"]
-                    ]
-                },
-                theme: "snow"
-            });
-            var MailEditor2 = new Quill("#MailContent2", {
-                modules: {
-                    toolbar: [
-                        [{ font: [] }, { size: [] }],
-                        ["bold", "italic", "underline", "strike"],
-                        [{ color: [] }, { background: [] }],
-                        [{ script: "super" }, { script: "sub" }],
-                        [{ list: "ordered" }, { list: "bullet" }, { indent: "-1" }, { indent: "+1" }],
-                        ["direction", { align: [] }],
-                        ["link"],
-                        ["clean"]
-                    ]
-                },
-                theme: "snow"
-            });
-            var MailEditor3 = new Quill("#MailContent3", {
-                modules: {
-                    toolbar: [
-                        [{ font: [] }, { size: [] }],
-                        ["bold", "italic", "underline", "strike"],
-                        [{ color: [] }, { background: [] }],
-                        [{ script: "super" }, { script: "sub" }],
-                        [{ list: "ordered" }, { list: "bullet" }, { indent: "-1" }, { indent: "+1" }],
-                        ["direction", { align: [] }],
-                        ["link"],
-                        ["clean"]
-                    ]
-                },
-                theme: "snow"
-            });
-
-            function saveInputValues() {
-            $('input').each(function() {
-                setCookie(this.id, $(this).val(), 1);
-            });
-            $('select').each(function() {
-                setCookie(this.id, $(this).val(), 1);
-            });
-            //setCookie('MailContent', MailEditor.root.innerHTML, 1);
-        }
-
-        function loadInputValues() {
-            $('input').each(function() {
-                const value = getCookie(this.id);
-                if (value) {
-                    $(this).val(value);
-                }
-            });
-            $('select').each(function() {
-                const value = getCookie(this.id);
-                if (value) {
-                    $(this).val(value);
-                }
-            });
-            const mailContent = getCookie('MailContent');
-            if (mailContent) {
-                MailEditor.root.innerHTML = mailContent;
-            }
-        }
-
-        //loadInputValues();
-
-
-
-            $("#MailClear").on("click", function () {
-                $("input").val("");
-                MailEditor1.root.innerHTML = "";
-                MailEditor2.root.innerHTML = "";
-                MailEditor3.root.innerHTML = "";
-                saveInputValues();
-            });
-
-            $('#MailSend').on('click', function (e) {
-                SendStatus = true;
-                const formData = {
-                    MailTitle: $('#MailTitle').val(),
-                    MailContent1: MailEditor1.root.innerHTML,
-                    MailContent2: MailEditor2.root.innerHTML,
-                    MailContent3: MailEditor3.root.innerHTML,
-                    MailReceive: [], // This will be populated in batches
-                    SMTP_Type : $("#SMTP_Type").val(),
-                    MailSenderNM : $("#MailSenderNM").val()
-                };
-
-                let SmtpCount = 0;
-                for (let i = 0; i < 10; i++) {
-                    if($(`#SMTP_USER${i}`).val()){
-                        formData[`SMTP_USER${i}`] = $(`#SMTP_USER${i}`).val();
-                        formData[`SMTP_PASSWORD${i}`] = $(`#SMTP_PASSWORD${i}`).val();
-                        SmtpCount = i;
+            $.ajax({
+                url: '/StockList',
+                success: function (data) {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        return;
                     }
+
+                    console.log(data)
+
+                    var tableBody = $('#StockList tbody');
+                    tableBody.empty(); // 기존 데이터 삭제
+
+                    data.forEach(function (stock) {
+                        var row = $('<tr>');
+                        row.append($('<td>').text(stock.ISU_ABBRV));
+                        row.append($('<td>').text(stock.ISU_CD));
+                        row.append($('<td>').text(stock.ISU_ENG_NM));
+                        row.append($('<td>').text(stock.ISU_NM));
+                        row.append($('<td>').text(stock.ISU_SRT_CD));
+                        row.append($('<td>').text(stock.KIND_STKCERT_TP_NM));
+                        row.append($('<td>').text(stock.LIST_DD));
+                        row.append($('<td>').text(stock.LIST_SHRS));
+                        row.append($('<td>').text(stock.MKT_TP_NM));
+                        row.append($('<td>').text(stock.PARVAL));
+                        row.append($('<td>').text(stock.SECT_TP_NM));
+                        row.append($('<td>').text(stock.SECUGRP_NM));
+                        tableBody.append(row);
+                    });
+                },
+                error: function (xhr, status, error) {
+                    alert('Failed to fetch data: ' + error);
                 }
-
-                const emails = getEmailsFromTable();
-                sendEmailsInBatches(emails, 100, formData , SmtpCount);
-                saveInputValues();
-            });
-
-            $("#MailStop").on("click" , function (e){
-                SendStatus = false;
             });
         });
     </script>
@@ -369,7 +89,7 @@
     <div class="d-flex align-items-center justify-content-between">
         <a href="/main" class="logo d-flex align-items-center">
             <img src="static/img/logo.png" alt="">
-            <span class="d-none d-lg-block">마케팅 관리자</span>
+            <span class="d-none d-lg-block">Stock Listner</span>
         </a>
         <i class="bi bi-list toggle-sidebar-btn"></i>
     </div><!-- End Logo -->
@@ -382,12 +102,12 @@
 
                 <a class="nav-link nav-profile d-flex align-items-center pe-0" href="#" data-bs-toggle="dropdown">
                     <img src="static/img/userimg.png" alt="Profile" class="rounded-circle">
-                    <span class="d-none d-md-block dropdown-toggle ps-2">마케팅</span>
+                    <span class="d-none d-md-block dropdown-toggle ps-2">관리자</span>
                 </a><!-- End Profile Iamge Icon -->
 
                 <ul class="dropdown-menu dropdown-menu-end dropdown-menu-arrow profile">
                     <li class="dropdown-header">
-                        <h6>마케팅</h6>
+                        <h6>관리자</h6>
                     </li>
                     <li>
                         <hr class="dropdown-divider">
@@ -420,29 +140,21 @@
 
     <ul class="sidebar-nav" id="sidebar-nav">
 
-        <li class="nav-heading">마케팅 메뉴</li>
+        <li class="nav-heading">관리자 메뉴</li>
 
         <li class="nav-item">
             <a class="nav-link" href="/main">
                 <i class="bi bi-person"></i>
-                <span>대량 메일 발송</span>
+                <span>종목 보고서</span>
             </a>
         </li><!-- End Profile Page Nav -->
 
         <li class="nav-item">
             <a class="nav-link collapsed" href="/main">
                 <i class="bi bi-card-list"></i>
-                <span>대량 문자 발송</span>
+                <span>자동 매매</span>
             </a>
         </li><!-- End Register Page Nav -->
-
-        <li class="nav-item">
-            <a class="nav-link collapsed" href="/main">
-                <i class="bi bi-card-list"></i>
-                <span>대량 트래픽 발생</span>
-            </a>
-        </li><!-- End Register Page Nav -->
-
 
     </ul>
 
@@ -451,11 +163,11 @@
 <main id="main" class="main">
 
     <div class="pagetitle">
-        <h1>대량 메일 발송</h1>
+        <h1>종목 리스트</h1>
         <nav>
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="index.html">홈</a></li>
-                <li class="breadcrumb-item active">대량 메일 발송</li>
+                <li class="breadcrumb-item active">종목 리스트</li>
             </ol>
         </nav>
     </div><!-- End Page Title -->
@@ -464,103 +176,38 @@
         <div class="row">
 
             <!-- Right side columns -->
-            <div class="col-lg-6">
+            <div class="col-lg-12">
                 <div class="card">
                     <div class="card-body">
-
-                        <h5 class="card-title">SMTP 계정 설정</h5>
-                        <div id="smtpContainer"></div>
+                        <h5 class="card-title">코스닥 종목 리스트</h5>
+                        <div id="">
+                            <table id="StockList" class="datatable" style="font-size: 15px;">
+                                <thead>
+                                <tr>
+                                    <th>종목 약어명</th>
+                                    <th>종목 코드</th>
+                                    <th>종목 영문명</th>
+                                    <th>종목명</th>
+                                    <th>단축</th>
+                                    <th>종류</th>
+                                    <th>상장일</th>
+                                    <th>상장 주식수</th>
+                                    <th>구분</th>
+                                    <th>액면</th>
+                                    <th>섹터 구분</th>
+                                    <th>증권 그룹명</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <!-- 데이터가 동적으로 채워질 부분 -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">받는 사람</h5>
 
-                        <div class="row">
-                            <div class="col-lg-8">
-                                <form id="uploadForm" enctype="multipart/form-data">
-                                    <input class="form-control" type="file" id="formFile" onchange="submitForm()">
-                                </form>
-                            </div>
-                            <div class="col-lg-4">
-                                <button type="button" class="btn btn-info" style="color: white;"
-                                        onclick="downloadSample()">샘플 엑셀 다운로드
-                                </button>
-                            </div>
-                        </div>
-                        <br>
-                        <div class="row">
-                            <div class="col-lg-12">
-                                <table class="table datatable" id="EmailReceive">
-                                    <thead>
-                                    <tr>
-                                        <td>받는 메일 리스트</td>
-                                    </tr>
-                                    </thead>
-                                </table>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </div><!-- End Right side columns -->
-            <div class="col-lg-6">
-
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">메일 설정</h5>
-                        <div class="row">
-                            <div class="col-sm-6">
-                                <select class="form-select" aria-label="Default select example" id = "SMTP_Type">
-                                  <option selected="" value="NAVER">NAVER</option>
-                                  <option value="GOOGLE">GOOGLE</option>
-                                </select>
-                            </div>
-                            <div class="col-sm-6">
-                                <input type="text" class="form-control" id="MailSenderNM" placeholder="전송하는 사람 이름">
-
-                            </div>
-                        </div>
-
-                        <h5 class="card-title">메일 제목</h5>
-                        <div class="col-sm-12">
-                            <input type="text" class="form-control" id="MailTitle">
-                        </div>
-                        <h5 class="card-title">메일 내용</h5>
-
-                        <!-- Quill Editor Default -->
-                        <div class="quill-editor-full ql-container ql-snow" style="height: 500px" id="MailContent1">
-                            <p>메일 내용을 입력해주세요.</p>
-                        </div>
-                        <br>
-                        <div class="quill-editor-full ql-container ql-snow" style="height: 500px" id="MailContent2">
-                            <p>메일 내용을 입력해주세요.</p>
-                        </div>
-                        <br>
-                        <div class="quill-editor-full ql-container ql-snow" style="height: 500px" id="MailContent3">
-                            <p>메일 내용을 입력해주세요.</p>
-                        </div>
-
-                        <!-- End Quill Editor Default -->
-                        <div class="text-center" style="margin-top: 20px;">
-                            <button type="button" id="MailSend" class="btn btn-primary" style="width: 75%;">메일전송
-                            </button>
-                            <button type="reset" id="MailClear" class="btn btn-secondary" style="width: 24%;">초기화
-                            </button>
-                        </div>
-                        <div class="text-center" style="margin-top: 20px;">
-                            <button type="button" id="MailStop" class="btn btn-danger" style="width: 100%;">일시정지
-                            </button>
-                        </div>
-
-                        <div id = "ResultPanel" style="margin-top: 20px;">
-
-                        </div>
-
-
-                    </div>
-                </div>
             </div>
+            <!-- End Right side columns -->
 
         </div>
     </section>
@@ -570,7 +217,7 @@
 <!-- ======= Footer ======= -->
 <footer id="footer" class="footer">
     <div class="copyright">
-        &copy; Powery by <strong><span>김현호</span></strong>. All Rights Reserved
+        &copy; Powery by <strong><span>박용규</span></strong>. All Rights Reserved
     </div>
 </footer><!-- End Footer -->
 

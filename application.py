@@ -1,159 +1,150 @@
-import base64
-import random
-import re
-from email.utils import formataddr
-
-import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_from_directory
-import os
-import smtplib
-from flask import Flask, render_template, request, jsonify
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.header import Header
-
 import logging
-from email.mime.image import MIMEImage
+import os
+import threading
+import time
+import requests
+from datetime import datetime, timedelta
+from flask import Flask, render_template, request, jsonify, redirect, url_for
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-from bs4 import BeautifulSoup
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 app.config['SESSION_TYPE'] = 'filesystem'
 
 # 디버깅을 위한 로그 설정
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
+
+# 크롬 드라이버 옵션 설정
+chrome_options = Options()
+chrome_options.add_argument("--headless")  # 백그라운드에서 실행
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
+chrome_options.add_argument("--disable-gpu")  # GPU 비활성화
+chrome_options.add_argument("window-size=1920x1080")  # 화면 크기 설정
+chrome_options.add_argument("--disable-extensions")  # 확장 프로그램 비활성화
+chrome_options.add_argument("--proxy-server='direct://'")  # 프록시 서버 비활성화
+chrome_options.add_argument("--proxy-bypass-list=*")  # 프록시 서버 비활성화
+chrome_options.add_argument("--start-maximized")  # 화면 최대화
+chrome_options.add_argument("--enable-automation")  # 자동화 플래그 설정
+chrome_options.add_argument(
+    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+
+data = {}
+
+# 크롤링 함수
+def crawl_krx_data(stock , start_date, end_date):
+    global data
+    try:
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get(
+            "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020302")  # 실제 KRX 데이터 URL로 변경
+        time.sleep(10)  # 페이지 로딩 대기
+
+        # JavaScript를 사용하여 AJAX 요청을 전송
+        # - inqTpCd = 1 : 기간합계 / 2 : 일별 추이
+        # - trdVolVal = 1 : 거래량 / 2 : 거래대금
+        # - askBid = 1 : 매도 / 2 : 매수 / 3 : 순매수
+
+        ISU_CD = stock["ISU_CD"]
+        ISU_SRT_CD = stock["ISU_SRT_CD"]
+        ISU_NM = stock["ISU_NM"]
+        ISU_NICK = stock["ISU_SRT_CD"]+"/"+stock["ISU_NM"]
+
+        script = f"""
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+        xhr.onreadystatechange = function() {{
+            if (xhr.readyState == 4 && xhr.status == 200) {{
+                console.log(xhr.responseText);
+                window.responseData = xhr.responseText;
+            }}
+        }};
+        var params = [
+            'bld=dbms/MDC/STAT/standard/MDCSTAT02303',
+            'locale=ko_KR',
+            'inqTpCd=2',
+            'trdVolVal=2',
+            'askBid=3',
+            'isuCd={ISU_CD}',
+            'isuCd2={ISU_SRT_CD}',
+            'strtDd={start_date}',
+            'endDd={end_date}',
+            'tboxisuCd_finder_stkisu0_0={ISU_NICK}',
+            'codeNmisuCd_finder_stkisu0_0={ISU_NM}',
+            'param1isuCd_finder_stkisu0_0=ALL',
+            'share=1',
+            'money=1',
+            'detailView=1',
+            'csvxls_isNo=false'
+        ];
+        xhr.send(params.join('&'));
+        """
+        driver.execute_script(script)
+        time.sleep(5)  # AJAX 요청 대기
+
+        # JavaScript에서 설정한 데이터를 가져옴
+        response = driver.execute_script("return window.responseData;")
+        data['response'] = response
+
+        print(response)  # 데이터 출력
+        driver.quit()
+    except Exception as e:
+        print(f"Error occurred: {e}")
+
+# 백그라운드에서 크롤링 함수 실행
+def start_crawling_thread(stock , start_date, end_date):
+    thread = threading.Thread(target=crawl_krx_data, args=(stock , start_date, end_date))
+    thread.daemon = True
+    thread.start()
 
 @app.route('/')
 def home():
     return redirect(url_for('main'))
+
 # Define the 'main' endpoint
 @app.route('/main')
 def main():
     return render_template('main.html')
 
-@app.route('/download_sample')
-def download_sample():
-    return send_from_directory(directory='static', filename='샘플엑셀.xlsx', as_attachment=True)
+def StockData():
+    url = "https://data-dbg.krx.co.kr/svc/sample/apis/sto/ksq_isu_base_info.json"
+    params = {
+        "AUTH_KEY": "74D1B99DFBF345BBA3FB4476510A4BED4C78D13A",
+        "basDd": "20240712"
+    }
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'file' not in request.files:
-        return jsonify({'status': 'error', 'message': 'No file part'}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'status': 'error', 'message': 'No selected file'}), 400
-    if file and file.filename.endswith('.xlsx'):
-        try:
-            # Read the Excel file
-            df = pd.read_excel(file)
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json().get('OutBlock_1', [])
+    except Exception as e:
+        print(f"Error occurred: {e}")
+        data = []
 
-            if 'Emails' not in df.columns:
-                return jsonify({'status': 'error', 'message': 'No Emails column in the file'}), 400
+    return data
 
-            # Extract emails
-            emails = df['Emails'].dropna().unique().tolist()
-            return jsonify({'status': 'success', 'emails': emails})
-        except Exception as e:
-            return jsonify({'status': 'error', 'message': str(e)}), 500
-    return jsonify({'status': 'error', 'message': 'Invalid file format'}), 400
-
-
-@app.route('/send_email', methods=['POST'])
-def send_email():
-    data = request.json
-    MailTitle = data.get('MailTitle')
-    email_list = data.get('MailReceive')
-    SMTP_Type = data.get("SMTP_Type")
-    MailSenderNM = data.get("MailSenderNM")
-    SmtpNo = data.get("SmtpNo")
-
-    random_number = random.choice([1, 2, 3])
-    MailContent = data.get('MailContent'+str(random_number))
-
-    if SMTP_Type == "NAVER" :
-        # SMTP 설정
-        SMTP_SERVER = 'smtp.naver.com'  # SMTP 서버 주소
-        SMTP_PORT = 465  # SMTP 포트
-    else:
-        # SMTP 설정
-        SMTP_SERVER = 'smtp.gmail.com'  # SMTP 서버 주소
-        SMTP_PORT = 465  # SMTP 포트
-
-    # 유효한 계정만 리스트에 포함
-    smtp_accounts = [
-        (data.get(f'SMTP_USER{i}'), data.get(f'SMTP_PASSWORD{i}'))
-        for i in range(10)
-        if data.get(f'SMTP_USER{i}') is not None and data.get(f'SMTP_PASSWORD{i}') is not None
-    ]
-
-    if 0 <= SmtpNo < len(smtp_accounts):
-        # 특정 SMTP No의 계정을 맨 앞으로 이동
-        smtp_accounts.insert(0, smtp_accounts.pop(SmtpNo))
-
-    print(smtp_accounts)
-
-    # 수신자를 최대 100명까지 가져오기
-    recipient_list = email_list[:100]
-
-    errors = []
-    sent = False
-    retries = 0
-    account_index = 0
-
-    while not sent and retries < len(smtp_accounts):
-        smtp_user, smtp_password = smtp_accounts[account_index]
-        if smtp_user and smtp_password:
-            print(smtp_user)
-            msg = MIMEMultipart()
-            msg['Subject'] = MailTitle
-
-            # HTML 본문을 파싱하여 base64 이미지를 찾아서 첨부
-            soup = BeautifulSoup(MailContent, 'html.parser')
-            cid_count = 0
-
-            for img in soup.find_all('img'):
-                if 'src' in img.attrs and img.attrs['src'].startswith('data:image'):
-                    cid_count += 1
-                    img_type = img.attrs['src'].split(';')[0].split('/')[1]
-                    img_data = re.sub('^data:image/.+;base64,', '', img.attrs['src'])
-                    img_data = base64.b64decode(img_data)
-                    image_name = f'image{cid_count}.{img_type}'
-
-                    # 이미지 MIME 객체 생성 및 첨부
-                    mime_img = MIMEImage(img_data, _subtype=img_type)
-                    mime_img.add_header('Content-Disposition', 'attachment', filename=image_name)
-                    mime_img.add_header('Content-ID', f'<{image_name}>')
-                    msg.attach(mime_img)
-
-                    # HTML 본문 내 이미지 src를 cid로 변경
-                    img.attrs['src'] = f'cid:{image_name}'
-
-            cleaned_html = str(soup)
-            msg.attach(MIMEText(cleaned_html, 'html'))
-
-            try:
-
-                msg['From'] = formataddr((Header(MailSenderNM, 'utf-8').encode(), smtp_user))
-
-                msg['To'] = ', '.join(recipient_list)
-                server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
-                server.login(smtp_user, smtp_password)
-                server.sendmail(smtp_user, recipient_list, msg.as_string())
-                server.quit()
-                sent = True
-
-            except Exception as e:
-                error_message = f"계정 {account_index + 1}로 이메일 전송 중 오류 발생: {e}"
-                logging.error(error_message)
-                errors.append(error_message)
-                account_index = (account_index + 1) % len(smtp_accounts)
-                retries += 1
-
-    if not sent:
-        return jsonify({'status': 'error', 'message': error_message}), 500
-    else:
-        return jsonify({'status': 'success', 'message': '이메일이 성공적으로 전송되었습니다.'})
-
+@app.route('/StockList')
+def StockList():
+    data = StockData()
+    return jsonify(data)
 
 if __name__ == '__main__':
+    stock_data = StockData()
+    print(stock_data)
+
+    for stock in stock_data:
+        ISU_CD = stock['ISU_CD']
+        list_date = stock['LIST_DD']
+        start_date = list_date
+        end_date = (datetime.strptime(list_date, '%Y%m%d') + timedelta(days=365)).strftime('%Y%m%d')
+
+        print(f"Stock Code: {ISU_CD}, Start Date: {start_date}, End Date: {end_date}")
+        start_crawling_thread( stock , start_date, end_date)
+        time.sleep(10)  # 각 요청 간에 약간의 딜레이를 둠
+
     app.run(debug=True)
