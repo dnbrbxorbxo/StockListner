@@ -242,7 +242,9 @@
   const datatables = select('.datatable', true)
   datatables.forEach(datatable => {
     new simpleDatatables.DataTable(datatable, {
-      perPageSelect: [5, 10, 15, ["All", -1]],
+      perPage: 30,  // 디폴트로 30개 항목을 표시하도록 설정
+
+      perPageSelect: [30, 50, 100, ["All", -1]],
       columns: [{
           select: 2,
           sortSequence: ["desc", "asc"]

@@ -1,43 +1,38 @@
-from peewee import *
+import os
+from datetime import datetime
 
-# SQLite 데이터베이스 연결
-db = SqliteDatabase('MathBank.db')
+from peewee import SqliteDatabase, Model, CharField, DateField, DateTimeField
 
-class BaseModel(Model):
+# Connect to a SQLite database
+db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stocks.db')
+db = SqliteDatabase(db_path , pragmas={'journal_mode': 'wal', 'cache_size': -1024 * 64})
+
+class Stock(Model):
+    basDt = DateField()
+    srtnCd = CharField()
+    isinCd = CharField()
+    mrktCtg = CharField()
+    itmsNm = CharField()
+    crno = CharField()
+    corpNm = CharField()
+
+    db1 = CharField()
+    db2 = CharField()
+    db3 = CharField()
+    db4 = CharField()
+    db5 = CharField()
+    db6 = CharField()
+    db7 = CharField()
+    db8 = CharField()
+    db9 = CharField()
+    db10 = CharField()
+    db11 = CharField()
+
+    updatedAt = DateTimeField(default=datetime.now)
+
     class Meta:
         database = db
 
-class User(BaseModel):
-    name = CharField()
-    grade = IntegerField()
-    parent_contact = CharField()
-    user_class = CharField()
-    school = CharField()
-    username = CharField(unique=True)
-    password = CharField()
-    approved = BooleanField(default=True)
-
-
-class Paper(BaseModel):
-    category = BooleanField(default=True)
-    title = CharField()
-    description = TextField()
-    difficulty = IntegerField()
-    question_type = CharField()  # 'objective' or 'subjective'
-    options = TextField(null=True)  # JSON string to store multiple choice options
-    correct_answer = CharField()
-    answer = TextField(null=True)  # Answer to the question
-    solution = TextField()
-    explanation_pdf = CharField(null=True)
-    explanation_image = CharField(null=True)
-    explanation_video_link = CharField(null=True)
-    parent = ForeignKeyField('self', null=True, backref='children')
-
-# 데이터베이스 초기화
+# Create the table
 db.connect()
-
-# 기존 테이블을 삭제합니다. (안전하게 사용하려면 주석 처리)
-db.drop_tables([User, Paper], safe=True)
-
-# 새 테이블을 생성합니다.
-db.create_tables([User, Paper], safe=True)
+db.create_tables([Stock])

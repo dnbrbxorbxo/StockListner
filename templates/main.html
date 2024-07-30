@@ -32,49 +32,202 @@
 
     <!-- Template Main CSS File -->
     <link href="static/css/style.css" rel="stylesheet">
-       <style>
+    <style>
         td {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 200px; /* 원하는 최대 너비로 설정 */
         }
+
+        #StockList tbody tr:hover {
+            color: #4154f1;
+            background-color: #f6f9ff;
+            border-radius: 5px;
+            opacity: 0.5;
+            cursor: pointer;
+        }
+
+
+        .chart-container {
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
     </style>
     <script>
-        $(document).ready(function () {
+
+        let StockCode = "";
+
+        function GetTradeType(val) {
+            switch (val) {
+                case 0 :
+                    return "금융투자";
+                case 1 :
+                    return "보험";
+                case 2 :
+                    return "투신";
+                case 3 :
+                    return "사모";
+                case 4 :
+                    return "은행";
+                case 5 :
+                    return "기타금융";
+                case 6 :
+                    return "연기금 등";
+                case 7 :
+                    return "기타법인";
+                case 8 :
+                    return "개인";
+                case 9 :
+                    return "외국인";
+                case 10 :
+                    return "기타외국인";
+            }
+        }
+
+        function SetStockDetailChart(StockCode) {
+
             $.ajax({
-                url: '/StockList',
-                success: function (data) {
-                    if (data.error) {
-                        alert('Error: ' + data.error);
-                        return;
+                url: '/GetStockDetailView',
+                method: 'POST',
+                data: {
+                    srtnCd: StockCode,
+                    ViewType: $("#ViewType").val()
+                },
+                success: function (response) {
+
+                    let Score = response.score;
+                    $("#StockScore").text(Score +" 점");
+                    // Append reasons to ScoreReason table
+                    // Append reasons to ScoreReason table using jQuery
+                    let reasons = response.reasons;
+                    let scoreReasonTable = $("#ScoreReason");
+                    let num = 1;
+                    $.each(reasons, function(index, reason) {
+                        scoreReasonTable.append(`<tr><td>${num}</td><td>${reason}</td></tr>`);
+                        num++;
+                    });
+
+                    // Initialize the ECharts instance
+                    let chart = echarts.init(document.querySelector("#lineChart"));
+
+
+                    // Prepare the series data dynamically
+                    let seriesData = [];
+                    for (let i = 0; i <= 10; i++) {
+                        if (response['TradeValSum' + i]) {
+                            seriesData.push({
+                                name: GetTradeType(i),
+                                type: 'line',
+                                data: response['TradeValSum' + i],
+                                yAxisIndex: 1,
+                                areaStyle: {opacity: 0.2} // Add area style to create an area chart
+
+                            });
+                        }
                     }
 
-                    console.log(data)
-
-                    var tableBody = $('#StockList tbody');
-                    tableBody.empty(); // 기존 데이터 삭제
-
-                    data.forEach(function (stock) {
-                        var row = $('<tr>');
-                        row.append($('<td>').text(stock.ISU_ABBRV));
-                        row.append($('<td>').text(stock.ISU_CD));
-                        row.append($('<td>').text(stock.ISU_ENG_NM));
-                        row.append($('<td>').text(stock.ISU_NM));
-                        row.append($('<td>').text(stock.ISU_SRT_CD));
-                        row.append($('<td>').text(stock.KIND_STKCERT_TP_NM));
-                        row.append($('<td>').text(stock.LIST_DD));
-                        row.append($('<td>').text(stock.LIST_SHRS));
-                        row.append($('<td>').text(stock.MKT_TP_NM));
-                        row.append($('<td>').text(stock.PARVAL));
-                        row.append($('<td>').text(stock.SECT_TP_NM));
-                        row.append($('<td>').text(stock.SECUGRP_NM));
-                        tableBody.append(row);
+                    let candlestickData = response.candlestickData;
+                    seriesData.push({
+                        name: "시세",
+                        type: 'candlestick',
+                        data: candlestickData,
+                        yAxisIndex: 0
                     });
+
+
+                    console.log(seriesData);
+
+                    // Calculate the range for the last 5 data points
+                    let totalDataPoints = response.dates.length;
+                    let startValue = ((totalDataPoints - 20) / totalDataPoints) * 100;
+                    let endValue = 100;
+
+                    // Set the chart options
+                    let options = {
+                        xAxis: {
+                            type: 'category',
+                            data: response.dates // Use the dates from the response for x-axis
+                        },
+
+                        legend: {
+                            data: ['Candlestick', '금융투자', '보험', '투신', '사모', '은행', '기타금융', '연기금 등', '기타법인', '개인', '외국인', '기타외국인'],
+                            left: 'center'
+                        },
+                        yAxis: [{
+                            type: 'value',
+                            name: 'Price',
+                            position: 'left',
+
+                            min: 'dataMin',
+                            max: 'dataMax'
+                        }, {
+                            type: 'value',
+                            name: 'Volume',
+                            position: 'right',
+
+                            min: 'dataMin',
+                            max: 'dataMax'
+                        }],
+                        series: seriesData,
+                        dataZoom: [
+                            {
+                                type: 'slider',
+                                start: startValue, // Adjust start to show the last 5 data points
+                                end: endValue // End at 100% to show the last data points
+                            },
+                            {
+                                type: 'inside'
+                            }
+                        ],
+                        tooltip: {
+                            trigger: 'axis'
+                        },
+                        toolbox: {
+                            feature: {
+                                saveAsImage: {},
+                                restore: {},
+                                dataZoom: {},
+                                magicType: {type: ['line', 'bar']},
+                                brush: {
+                                    type: ['rect', 'polygon', 'lineX', 'lineY', 'keep', 'clear']
+                                }
+                            }
+                        }
+                    };
+
+                    // Use the specified chart options
+                    chart.setOption(options);
+
                 },
-                error: function (xhr, status, error) {
-                    alert('Failed to fetch data: ' + error);
+                error: function (error) {
+                    console.log("Error:", error);
                 }
+            });
+
+        }
+
+        $(document).ready(function () {
+            $("#ViewType").on("change", function () {
+                SetStockDetailChart(StockCode);
+            });
+
+            $("#StockList tbody tr").click(function () {
+                $("#ViewStockDetail").click();
+
+                // Get the data from the selected row
+                var itmsNm = $(this).find("td:eq(0)").text();
+                var corpNm = $(this).find("td:eq(1)").text();
+                var isinCd = $(this).find("td:eq(2)").text();
+                StockCode = $(this).find("td:eq(3)").text();
+                var crno = $(this).find("td:eq(4)").text();
+                var mrktCtg = $(this).find("td:eq(5)").text();
+
+                $("#ModalTitle").text(mrktCtg + " > " + itmsNm + " > " + isinCd + "[" + StockCode + "]")
+
+                SetStockDetailChart(StockCode);
+
             });
         });
     </script>
@@ -178,28 +331,95 @@
             <!-- Right side columns -->
             <div class="col-lg-12">
                 <div class="card">
+                    <button type="button" id="ViewStockDetail" style="display: none;" class="btn btn-primary"
+                            data-bs-toggle="modal" data-bs-target="#fullscreenModal">
+                        상세 정보 보기
+                    </button>
+
+                    <div class="modal fade" id="fullscreenModal" tabindex="-1">
+                        <div class="modal-dialog modal-fullscreen">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="ModalTitle"></h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                            aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-lg-10">
+                                                <h5 class="card-title">투자자별 점유율 그래프
+                                                    <select class="form-select" id="ViewType"
+                                                            style="width: 120px; float: right; margin-bottom: 20px;">
+                                                        <option value="daily">일</option>
+                                                        <option value="weekly">주</option>
+                                                        <option selected="" value="monthly">달</option>
+                                                        <option value="quarterly">분기</option>
+                                                        <option value="yearly">년</option>
+                                                    </select>
+                                                </h5>
+
+
+                                                <!-- Line Chart -->
+                                                <div class="chart-container">
+                                                    <div id="lineChart" style="width: 100%;min-height: 700px;"></div>
+                                                </div>
+                                                <!-- End Line Chart -->
+                                            </div>
+                                            <div class="col-lg-2">
+                                                <h5 class="card-title">투자 점수 및 산출 근거</h5>
+                                                <div class="alert alert-success bg-success text-light border-0 alert-dismissible fade show" id = "StockScore" role="alert" style="text-align: center;font-weight: bold; font-size: 30px; padding: 10px;">
+
+                                                </div>
+                                                <table class="table table-striped">
+                                                    <thead>
+                                                    <tr>
+                                                        <th scope="col">#</th>
+                                                        <th scope="col">근거</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody id = "ScoreReason">
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="col-lg-6">
+                                                <h5 class="card-title">투자 통계</h5>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div><!-- End Full Screen Modal-->
                     <div class="card-body">
-                        <h5 class="card-title">코스닥 종목 리스트</h5>
+                        <h5 class="card-title">종목 리스트</h5>
                         <div id="">
                             <table id="StockList" class="datatable" style="font-size: 15px;">
                                 <thead>
                                 <tr>
                                     <th>종목 약어명</th>
-                                    <th>종목 코드</th>
-                                    <th>종목 영문명</th>
                                     <th>종목명</th>
-                                    <th>단축</th>
-                                    <th>종류</th>
-                                    <th>상장일</th>
-                                    <th>상장 주식수</th>
+                                    <th>종목 코드</th>
+                                    <th>단축 코드</th>
+                                    <th>법인 코드</th>
                                     <th>구분</th>
-                                    <th>액면</th>
-                                    <th>섹터 구분</th>
-                                    <th>증권 그룹명</th>
                                 </tr>
                                 </thead>
                                 <tbody>
-                                <!-- 데이터가 동적으로 채워질 부분 -->
+                                {% for stock in stocks %}
+                                    <tr>
+                                        <td>{{ stock.itmsNm }}</td>
+                                        <td>{{ stock.corpNm }}</td>
+                                        <td>{{ stock.isinCd }}</td>
+                                        <td>{{ stock.srtnCd }}</td>
+                                        <td>{{ stock.crno }}</td>
+                                        <td>{{ stock.mrktCtg }}</td>
+                                    </tr>
+                                {% endfor %}
                                 </tbody>
                             </table>
                         </div>
@@ -213,6 +433,7 @@
     </section>
 
 </main><!-- End #main -->
+
 
 <!-- ======= Footer ======= -->
 <footer id="footer" class="footer">

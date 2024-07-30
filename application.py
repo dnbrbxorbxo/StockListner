@@ -2,14 +2,12 @@ import logging
 import os
 import threading
 import time
-import requests
-from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
 from flask import Flask, render_template, request, jsonify, redirect, url_for
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from models import Stock
+from GetData import GetStockData , GetStockDetailData , calculate_technical_indicators , calculate_scores
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -18,90 +16,6 @@ app.config['SESSION_TYPE'] = 'filesystem'
 # 디버깅을 위한 로그 설정
 logging.basicConfig(level=logging.INFO)
 
-# 크롬 드라이버 옵션 설정
-chrome_options = Options()
-chrome_options.add_argument("--headless")  # 백그라운드에서 실행
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-chrome_options.add_argument("--disable-gpu")  # GPU 비활성화
-chrome_options.add_argument("window-size=1920x1080")  # 화면 크기 설정
-chrome_options.add_argument("--disable-extensions")  # 확장 프로그램 비활성화
-chrome_options.add_argument("--proxy-server='direct://'")  # 프록시 서버 비활성화
-chrome_options.add_argument("--proxy-bypass-list=*")  # 프록시 서버 비활성화
-chrome_options.add_argument("--start-maximized")  # 화면 최대화
-chrome_options.add_argument("--enable-automation")  # 자동화 플래그 설정
-chrome_options.add_argument(
-    "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-
-data = {}
-
-# 크롤링 함수
-def crawl_krx_data(stock , start_date, end_date):
-    global data
-    try:
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.get(
-            "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020302")  # 실제 KRX 데이터 URL로 변경
-        time.sleep(10)  # 페이지 로딩 대기
-
-        # JavaScript를 사용하여 AJAX 요청을 전송
-        # - inqTpCd = 1 : 기간합계 / 2 : 일별 추이
-        # - trdVolVal = 1 : 거래량 / 2 : 거래대금
-        # - askBid = 1 : 매도 / 2 : 매수 / 3 : 순매수
-
-        ISU_CD = stock["ISU_CD"]
-        ISU_SRT_CD = stock["ISU_SRT_CD"]
-        ISU_NM = stock["ISU_NM"]
-        ISU_NICK = stock["ISU_SRT_CD"]+"/"+stock["ISU_NM"]
-
-        script = f"""
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', true);
-        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-        xhr.onreadystatechange = function() {{
-            if (xhr.readyState == 4 && xhr.status == 200) {{
-                console.log(xhr.responseText);
-                window.responseData = xhr.responseText;
-            }}
-        }};
-        var params = [
-            'bld=dbms/MDC/STAT/standard/MDCSTAT02303',
-            'locale=ko_KR',
-            'inqTpCd=2',
-            'trdVolVal=2',
-            'askBid=3',
-            'isuCd={ISU_CD}',
-            'isuCd2={ISU_SRT_CD}',
-            'strtDd={start_date}',
-            'endDd={end_date}',
-            'tboxisuCd_finder_stkisu0_0={ISU_NICK}',
-            'codeNmisuCd_finder_stkisu0_0={ISU_NM}',
-            'param1isuCd_finder_stkisu0_0=ALL',
-            'share=1',
-            'money=1',
-            'detailView=1',
-            'csvxls_isNo=false'
-        ];
-        xhr.send(params.join('&'));
-        """
-        driver.execute_script(script)
-        time.sleep(5)  # AJAX 요청 대기
-
-        # JavaScript에서 설정한 데이터를 가져옴
-        response = driver.execute_script("return window.responseData;")
-        data['response'] = response
-
-        print(response)  # 데이터 출력
-        driver.quit()
-    except Exception as e:
-        print(f"Error occurred: {e}")
-
-# 백그라운드에서 크롤링 함수 실행
-def start_crawling_thread(stock , start_date, end_date):
-    thread = threading.Thread(target=crawl_krx_data, args=(stock , start_date, end_date))
-    thread.daemon = True
-    thread.start()
-
 @app.route('/')
 def home():
     return redirect(url_for('main'))
@@ -109,42 +23,157 @@ def home():
 # Define the 'main' endpoint
 @app.route('/main')
 def main():
-    return render_template('main.html')
+    stocks = Stock.select().dicts()
+    return render_template('main.html', stocks=stocks)
 
-def StockData():
-    url = "https://data-dbg.krx.co.kr/svc/sample/apis/sto/ksq_isu_base_info.json"
-    params = {
-        "AUTH_KEY": "74D1B99DFBF345BBA3FB4476510A4BED4C78D13A",
-        "basDd": "20240712"
-    }
 
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json().get('OutBlock_1', [])
-    except Exception as e:
-        print(f"Error occurred: {e}")
-        data = []
+import pandas as pd
+from datetime import datetime, timedelta
 
-    return data
 
-@app.route('/StockList')
-def StockList():
-    data = StockData()
-    return jsonify(data)
+def get_stock_data_from_db(stock, frequency='daily'):
+    # query = (StockDetail
+    #          .select()
+    #          .where(StockDetail.srtnCd == stock)
+    #          .group_by(StockDetail.trd_dd)
+    #          .order_by(StockDetail.trd_dd.asc()))
+
+    query = None
+
+    if query.exists():
+        data = [{
+            'date': record.trd_dd,
+            'opnprc': float(record.tdd_opnprc.replace(',', '')) if record.tdd_opnprc else 0,
+            'clsprc': float(record.tdd_clsprc.replace(',', '')) if record.tdd_clsprc else 0,
+            'lwprc': float(record.tdd_lwprc.replace(',', '')) if record.tdd_lwprc else 0,
+            'hgprc': float(record.tdd_hgprc.replace(',', '')) if record.tdd_hgprc else 0,
+            **{f'tradeval{i}': int(getattr(record, f'trdval{i + 1}').replace(',', '')) for i in range(11)},
+            **{f'tradecnt{i}': int(getattr(record, f'trdcnt{i + 1}').replace(',', '')) for i in range(11)}
+        } for record in query]
+
+        df = pd.DataFrame(data)
+        df['date'] = pd.to_datetime(df['date'])
+
+        if frequency == 'weekly':
+            df = df.resample('W-MON', on='date').agg({
+                'opnprc': 'first',
+                'clsprc': 'last',
+                'lwprc': 'min',
+                'hgprc': 'max',
+                **{f'tradeval{i}': 'sum' for i in range(11)},
+                **{f'tradecnt{i}': 'sum' for i in range(11)}
+            }).dropna().reset_index()
+        elif frequency == 'monthly':
+            df = df.resample('M', on='date').agg({
+                'opnprc': 'first',
+                'clsprc': 'last',
+                'lwprc': 'min',
+                'hgprc': 'max',
+                **{f'tradeval{i}': 'sum' for i in range(11)},
+                **{f'tradecnt{i}': 'sum' for i in range(11)}
+            }).dropna().reset_index()
+        elif frequency == 'quarterly':
+            df = df.resample('Q', on='date').agg({
+                'opnprc': 'first',
+                'clsprc': 'last',
+                'lwprc': 'min',
+                'hgprc': 'max',
+                **{f'tradeval{i}': 'sum' for i in range(11)},
+                **{f'tradecnt{i}': 'sum' for i in range(11)}
+            }).dropna().reset_index()
+        elif frequency == 'yearly':
+            df = df.resample('Y', on='date').agg({
+                'opnprc': 'first',
+                'clsprc': 'last',
+                'lwprc': 'min',
+                'hgprc': 'max',
+                **{f'tradeval{i}': 'sum' for i in range(11)},
+                **{f'tradecnt{i}': 'sum' for i in range(11)}
+            }).dropna().reset_index()
+
+        dates = df['date'].dt.strftime('%Y-%m-%d').tolist()
+        candlestick_data = df[['opnprc', 'clsprc', 'lwprc', 'hgprc']].values.tolist()
+
+        # 누적 합 계산
+        accumulated_tradevals_list = {f'TradeValSum{i}': df[f'tradeval{i}'].cumsum().tolist() for i in range(11)}
+        tradevals = {f'TradeVal{i}': df[f'tradeval{i}'].tolist() for i in range(11)}
+        tradeCnts = {f'TradeCnt{i}': df[f'tradecnt{i}'].tolist() for i in range(11)}
+
+        closing_prices = df['clsprc'].tolist()
+
+        # 기술적 지표 계산
+        df = calculate_technical_indicators(df)
+
+        # 종목별 점수 계산
+        score, reasons = calculate_scores(df)
+
+        return {
+            "dates": dates,
+            "candlestickData": candlestick_data,
+            **accumulated_tradevals_list,
+            **tradevals,
+            **tradeCnts,
+            "closing_prices": closing_prices,
+            "score": int(score),
+            "reasons": reasons
+        }
+    else:
+        return None
+
+@app.route('/GetStockDetailView', methods=['POST'])
+def GetStockDetailView():
+    stock_code = request.form.get('srtnCd')
+    ViewType = request.form.get("ViewType")
+    print(stock_code , ViewType)
+    data = get_stock_data_from_db(stock_code , ViewType)
+    print(data)
+    if data:
+        return jsonify(data)
+    else:
+        return jsonify({"error": "Stock code not found"}), 404
+
+@app.route('/GetStockReport', methods=['POST'])
+def GetStockReport():
+    StockCode = request.form.get('StockCode')
+    data = get_stock_data_from_db(StockCode)
+
+    if data:
+        return jsonify(data)
+    else:
+        return jsonify({"error": "Stock code not found"}), 404
+
+
 
 if __name__ == '__main__':
-    stock_data = StockData()
-    print(stock_data)
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
 
-    for stock in stock_data:
-        ISU_CD = stock['ISU_CD']
-        list_date = stock['LIST_DD']
-        start_date = list_date
-        end_date = (datetime.strptime(list_date, '%Y%m%d') + timedelta(days=365)).strftime('%Y%m%d')
+        #   GetStockData_Thread = threading.Thread(target=GetStockData)
+        #  GetStockData_Thread.start()
 
-        print(f"Stock Code: {ISU_CD}, Start Date: {start_date}, End Date: {end_date}")
-        start_crawling_thread( stock , start_date, end_date)
-        time.sleep(10)  # 각 요청 간에 약간의 딜레이를 둠
+        threads = []
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 1)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 2)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 3)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 4)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 5)))
 
-    app.run(debug=True)
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 6)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 7)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 8)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 9)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 10)))
+
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 11)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 12)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 13)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 14)))
+        threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 15)))
+
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+
+    app.run(debug=True, port=5500)
