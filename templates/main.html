@@ -57,7 +57,7 @@
     </style>
     <script>
 
-        let StockCode = "";
+        let StockName = "";
 
         function GetTradeType(val) {
             switch (val) {
@@ -86,13 +86,13 @@
             }
         }
 
-        function SetStockDetailChart(StockCode) {
+        function SetStockDetailChart(StockNM) {
 
             $.ajax({
                 url: '/GetStockDetailView',
                 method: 'POST',
                 data: {
-                    srtnCd: StockCode,
+                    StockName: StockNM,
                     ViewType: $("#ViewType").val()
                 },
                 success: function (response) {
@@ -103,6 +103,7 @@
                     // Append reasons to ScoreReason table using jQuery
                     let reasons = response.reasons;
                     let scoreReasonTable = $("#ScoreReason");
+                    scoreReasonTable.html("");
                     let num = 1;
                     $.each(reasons, function(index, reason) {
                         scoreReasonTable.append(`<tr><td>${num}</td><td>${reason}</td></tr>`);
@@ -210,7 +211,7 @@
 
         $(document).ready(function () {
             $("#ViewType").on("change", function () {
-                SetStockDetailChart(StockCode);
+                SetStockDetailChart(StockName);
             });
 
             $("#StockList tbody tr").click(function () {
@@ -220,13 +221,14 @@
                 var itmsNm = $(this).find("td:eq(0)").text();
                 var corpNm = $(this).find("td:eq(1)").text();
                 var isinCd = $(this).find("td:eq(2)").text();
-                StockCode = $(this).find("td:eq(3)").text();
+                StockName = itmsNm;
+                var StockCD = $(this).find("td:eq(3)").text();
                 var crno = $(this).find("td:eq(4)").text();
                 var mrktCtg = $(this).find("td:eq(5)").text();
 
-                $("#ModalTitle").text(mrktCtg + " > " + itmsNm + " > " + isinCd + "[" + StockCode + "]")
+                $("#ModalTitle").text(mrktCtg + " > " + itmsNm + " > " + isinCd + "[" + StockCD + "]")
 
-                SetStockDetailChart(StockCode);
+                SetStockDetailChart(StockName);
 
             });
         });

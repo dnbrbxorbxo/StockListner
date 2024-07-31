@@ -35,7 +35,7 @@ def GetStockData():
         current_time = datetime.now().strftime('%H:%M')
 
         # 현재 시간이 오후 8시이면 데이터 수집 시작
-        if current_time == '20:00':
+        if current_time == '03:17':
             url = "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo"
             current_date = datetime.now().strftime('%Y%m%d')
             current_date = "20240723"
