@@ -222,11 +222,11 @@ def GetStockDetailData( Limit , Page):
     try:
 
         existing_data = load_existing_data()
-        print(existing_data)
 
         # Stock 테이블에서 isinCd가 subquery에 없는 항목 선택하고 페이징 처리
         stocks = (Stock
-                  .select().limit(Limit).offset(Limit * (Page - 1)))
+                  .select().order_by(Stock.id.desc()).limit(Limit).offset(Limit * (Page - 1)))
+        print(stocks)
 
         total_start_date = "20050101"
         total_end_date = datetime.now().strftime("%Y%m%d")

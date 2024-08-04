@@ -7,6 +7,8 @@ import time
 import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, redirect, url_for
+from peewee import SQL
+
 from models import Stock
 from GetData import GetStockData , GetStockDetailData , calculate_technical_indicators , calculate_scores
 
@@ -24,8 +26,38 @@ def home():
 # Define the 'main' endpoint
 @app.route('/main')
 def main():
-    stocks = Stock.select().dicts()
+    # 데이터베이스에서 모든 Stock 레코드 가져오기
+    # 데이터베이스에서 모든 Stock 레코드를 db1 필드를 정수로 변환하여 내림차순 정렬하여 가져오기
+    stocks = (Stock
+              .select()
+              .order_by(SQL('CAST(db1 AS INTEGER)').desc())
+              .dicts())    # main.html 템플릿으로 렌더링
     return render_template('main.html', stocks=stocks)
+
+
+def update_scores():
+    # 데이터베이스에서 모든 Stock 레코드 가져오기
+    stocks = Stock.select()
+
+    # 각 주식 데이터의 점수를 계산하여 db1 필드에 업데이트
+    for stock in stocks:
+        try:
+            data = get_stock_data_from_json(stock.itmsNm)  # 주식 데이터 DataFrame 가져오기
+            score = data["score"]  # DataFrame에서 score의 평균을 계산
+
+            # 점수를 db1 컬럼에 업데이트
+            stock.db1 = score
+            stock.save()  # 데이터베이스에 저장
+            print(f"종목 : {stock.itmsNm} / Score : {score:.2f}")
+        except Exception as e:
+
+            # 점수를 db1 컬럼에 업데이트
+            stock.db1 = 0
+            stock.save()  # 데이터베이스에 저장
+            print(f"종목에러 : {stock.itmsNm} / Error: {str(e)}")
+
+
+    print("Scores updated successfully.")
 
 
 import pandas as pd
@@ -115,16 +147,11 @@ def get_stock_data_from_json(stock, frequency='daily'):
     df = df.sort_values(by='trd_dd')
 
     for i in range(11):
-        print(i)
-        print(f'trdval{i + 1}')
-        print(df[f'trdval{i + 1}'])
-
         df[f'trdval{i + 1}'] = df[f'trdval{i + 1}'].fillna(0).astype(float)
         df[f'trdcnt{i + 1}'] = df[f'trdcnt{i + 1}'].fillna(0).astype(float)
 
         df[f'tradeval{i}'] = df[f'trdval{i + 1}'].replace(',', '').astype(float)
         df[f'tradecnt{i}'] = df[f'trdcnt{i + 1}'].replace(',', '').astype(float)
-
 
     df['opnprc'] = df['tdd_opnprc'].replace(',', '').astype(float)
     df['clsprc'] = df['tdd_clsprc'].replace(',', '').astype(float)
@@ -176,6 +203,11 @@ def get_stock_data_from_json(stock, frequency='daily'):
     tradevals = {f'TradeVal{i}': df[f'tradeval{i}'].tolist() for i in range(11)}
     tradeCnts = {f'TradeCnt{i}': df[f'tradecnt{i}'].tolist() for i in range(11)}
 
+    # 최소값 보정 후 누적 합 다시 계산
+    for i in range(11):
+        min_value = min(accumulated_tradevals_list[f'TradeValSum{i}'])
+        accumulated_tradevals_list[f'TradeValSum{i}'] = [x - min_value for x in accumulated_tradevals_list[f'TradeValSum{i}']]
+
     closing_prices = df['clsprc'].tolist()
 
     # 기술적 지표 계산
@@ -194,6 +226,82 @@ def get_stock_data_from_json(stock, frequency='daily'):
         "score": int(score),
         "reasons": reasons
     }
+
+
+def calculate_FRVp(data, start_date, end_date):
+    # Convert date strings to datetime objects
+    dates = pd.to_datetime(data["dates"])
+
+    # Create a DataFrame with the necessary data
+    df = pd.DataFrame({
+        'trd_dd': dates,
+        'clsprc': data['closing_prices'],
+        **{f'tradeval{i}': data[f'TradeVal{i}'] for i in range(11)},
+        **{f'tradecnt{i}': data[f'TradeCnt{i}'] for i in range(11)},
+    })
+
+    # Filter the DataFrame for the given date range
+    df = df[(df['trd_dd'] >= start_date) & (df['trd_dd'] <= end_date)]
+
+    # Print the filtered DataFrame for debugging
+    print("Filtered DataFrame:")
+    print(df)
+
+    # Initialize the volume profile dictionary
+    volume_profile = {}
+
+    # Calculate the average cost for each trade value and count pair
+    for i in range(11):
+        df[f"avg_cost{i}"] = df[f'tradeval{i}'] / df[f'tradecnt{i}'].replace(0, np.nan)
+
+    # Iterate over each row in the DataFrame
+    for index, row in df.iterrows():
+        for i in range(11):
+            avg_cost = row[f"avg_cost{i}"]
+            if pd.isna(avg_cost) or avg_cost == 0:
+                continue
+
+            # Find the closest closing price to the average cost
+            closest_closing_price = min(df['clsprc'], key=lambda x: abs(x - avg_cost))
+
+            # Convert the closest closing price to a string to use as a key
+            closest_closing_price_str = str(int(closest_closing_price))
+
+            # Add the trade value to the volume profile using the closest closing price as the key
+            if closest_closing_price_str not in volume_profile:
+                volume_profile[closest_closing_price_str] = 0
+
+            volume_profile[closest_closing_price_str] += row[f'tradeval{i}']
+
+    # Extract the keys and values from the volume profile
+    profile_key = list(volume_profile.keys())
+    profile_values = list(volume_profile.values())
+
+    # Return the calculated data
+    return {
+        "dates": df['trd_dd'].dt.strftime('%Y-%m-%d').tolist(),
+        "closing_prices": df['clsprc'].tolist(),
+        "profile_key": profile_key,
+        "profile_values": profile_values
+    }
+
+
+@app.route('/GetFRPVChartView', methods=['POST'])
+def GetFRPVChartView():
+    StockName = request.form.get('StockName')
+    startDT = request.form.get("startDT")
+    endDT = request.form.get("endDT")
+
+    print(StockName , startDT , endDT)
+
+    df = get_stock_data_from_json(StockName)
+    frvp_data = calculate_FRVp(df, startDT, endDT)
+
+    if frvp_data:
+        return jsonify(frvp_data)
+    else:
+        return jsonify({"error": "Stock code not found"}), 404
+
 
 @app.route('/GetStockDetailView', methods=['POST'])
 def GetStockDetailView():
@@ -225,30 +333,33 @@ if __name__ == '__main__':
     #     #GetStockData_Thread = threading.Thread(target=GetStockData)
     #     #GetStockData_Thread.start()
     #
-    #     threads = []
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 1)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 2)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 3)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 4)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 5)))
-    #
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 6)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 7)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 8)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 9)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 10)))
-    #
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 11)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 12)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 13)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 14)))
-    #     threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 15)))
-    #
-    #     for thread in threads:
-    #         thread.start()
-    #
-    #     for thread in threads:
-    #         thread.join()
+        # threads = []
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 1)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 2)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 3)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 4)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 5)))
+        #
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 6)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 7)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 8)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 9)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 10)))
+        #
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 11)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 12)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 13)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 14)))
+        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 15)))
+        #
+        # for thread in threads:
+        #     thread.start()
+        #     time.sleep(1)
+        #
+        # for thread in threads:
+        #     thread.join()
+
+    # update_scores()
 
 
     app.run(debug=True, port=5500)

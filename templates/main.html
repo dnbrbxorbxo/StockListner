@@ -98,14 +98,14 @@
                 success: function (response) {
 
                     let Score = response.score;
-                    $("#StockScore").text(Score +" 점");
+                    $("#StockScore").text(Score + " 점");
                     // Append reasons to ScoreReason table
                     // Append reasons to ScoreReason table using jQuery
                     let reasons = response.reasons;
                     let scoreReasonTable = $("#ScoreReason");
                     scoreReasonTable.html("");
                     let num = 1;
-                    $.each(reasons, function(index, reason) {
+                    $.each(reasons, function (index, reason) {
                         scoreReasonTable.append(`<tr><td>${num}</td><td>${reason}</td></tr>`);
                         num++;
                     });
@@ -151,27 +151,31 @@
                             type: 'category',
                             data: response.dates // Use the dates from the response for x-axis
                         },
-
                         legend: {
                             data: ['Candlestick', '금융투자', '보험', '투신', '사모', '은행', '기타금융', '연기금 등', '기타법인', '개인', '외국인', '기타외국인'],
-                            left: 'center'
+                            left: 'left' // Legend moved to the left
                         },
                         yAxis: [{
                             type: 'value',
                             name: 'Price',
                             position: 'left',
-
                             min: 'dataMin',
                             max: 'dataMax'
                         }, {
                             type: 'value',
                             name: 'Volume',
                             position: 'right',
-
                             min: 'dataMin',
                             max: 'dataMax'
                         }],
-                        series: seriesData,
+                        series: seriesData.map(item => {
+                            if (item.type === 'line') {
+                                item.areaStyle = null; // Remove area style from line charts
+                                item.symbol = 'none'; // 라인 차트의 마커 제거
+
+                            }
+                            return item;
+                        }),
                         dataZoom: [
                             {
                                 type: 'slider',
@@ -186,20 +190,33 @@
                             trigger: 'axis'
                         },
                         toolbox: {
+                            show: true, // 툴박스 표시
                             feature: {
                                 saveAsImage: {},
                                 restore: {},
                                 dataZoom: {},
-                                magicType: {type: ['line', 'bar']},
+                                magicType: {
+                                    type: ['line', 'bar']
+                                },
                                 brush: {
                                     type: ['rect', 'polygon', 'lineX', 'lineY', 'keep', 'clear']
                                 }
+                            },
+                            iconStyle: {
+                                borderColor: 'black' // 툴박스 아이콘 스타일 설정
                             }
                         }
+
                     };
+
 
                     // Use the specified chart options
                     chart.setOption(options);
+                    chart.on('dataZoom', function (params) {  // 현재 옵션 가져오기
+                        ChartZoom(chart);
+                    });
+                    ChartZoom(chart);
+                    $("#GetFRPvChart").trigger("click");
 
                 },
                 error: function (error) {
@@ -215,23 +232,197 @@
             });
 
             $("#StockList tbody tr").click(function () {
-                $("#ViewStockDetail").click();
-
-                // Get the data from the selected row
-                var itmsNm = $(this).find("td:eq(0)").text();
-                var corpNm = $(this).find("td:eq(1)").text();
-                var isinCd = $(this).find("td:eq(2)").text();
-                StockName = itmsNm;
-                var StockCD = $(this).find("td:eq(3)").text();
-                var crno = $(this).find("td:eq(4)").text();
-                var mrktCtg = $(this).find("td:eq(5)").text();
-
-                $("#ModalTitle").text(mrktCtg + " > " + itmsNm + " > " + isinCd + "[" + StockCD + "]")
-
-                SetStockDetailChart(StockName);
+                SetEventTableClick(this);
 
             });
+            $(".datatable-input").on("change", function () {
+
+                $("#StockList tbody tr").click(function () {
+
+                    SetEventTableClick(this);
+
+                });
+            });
+
+            $("#GetFRPvChart").on("click" , function (){
+                let startDT = $("#GetFRPvChart").attr("data-startdt");
+                let endDT = $("#GetFRPvChart").attr("data-enddt");
+                SetFRPVChart(StockName , startDT , endDT);
+            });
         });
+
+        function ChartZoom(StockChart) {
+            // 현재 옵션 가져오기
+            var currentOption = StockChart.getOption();
+            var startPercentage = currentOption.dataZoom[1].start;
+            var endPercentage = currentOption.dataZoom[0].end;
+
+            var dataLength = currentOption.xAxis[0].data.length;
+
+            // 퍼센티지 값을 데이터 길이와 곱하여 인덱스 계산
+            var startIndex = Math.round((startPercentage / 100) * (dataLength - 1));
+            var endIndex = Math.round((endPercentage / 100) * (dataLength - 1));
+
+            // 데이터 길이를 벗어나지 않도록 보정
+            startIndex = Math.max(0, Math.min(dataLength - 1, startIndex));
+            endIndex = Math.max(0, Math.min(dataLength - 1, endIndex));
+
+            // 데이터가 역순으로 되어 있는 경우, 시작 인덱스가 종료 인덱스보다 큰지 확인
+            if (startIndex > endIndex) {
+                [startIndex, endIndex] = [endIndex, startIndex];
+            }
+
+            var startDT = currentOption.xAxis[0].data[startIndex];
+            var endDT = currentOption.xAxis[0].data[endIndex];
+
+            $("#GetFRPvChart").text("기간["+startDT+ " ~ " + endDT + "]의 FRPv 지표 확인하기");
+            $("#GetFRPvChart").attr("data-startdt" , startDT);
+            $("#GetFRPvChart").attr("data-enddt" , endDT);
+        }
+
+        function SetFRPVChart(Stock , startDT ,endDT ){
+
+            $.ajax({
+                url: '/GetFRPVChartView',
+                method: 'POST',
+                data: {
+                    StockName: Stock,
+                    startDT: startDT,
+                    endDT: endDT,
+                },
+                success: function (response) {
+
+                    // 매입 단가와 거래량 데이터를 정렬하여 y축에 반영
+                    const sortedProfileData = response.profile_key.map((key, index) => ({
+                        price: parseInt(key, 10),
+                        volume: response.profile_values[index]
+                    })).sort((a, b) => a.price - b.price);
+
+                    const sortedPrices = sortedProfileData.map(data => data.price.toString());
+                    const sortedVolumes = sortedProfileData.map(data => data.volume);
+
+                    // ECharts 인스턴스 생성
+                    const chart = echarts.init(document.getElementById('FRPvChart'));
+
+                    // 최대값과 최소값 계산
+                    const maxPrice = Math.max(...response.closing_prices);
+                    const minPrice = Math.min(...response.closing_prices);
+
+                    // 차트 옵션
+                    // 차트 옵션
+                    const option = {
+                        title: {
+                            text: '종가 및 매입 단가별 거래량 차트'
+                        },
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: {
+                                type: 'shadow'
+                            }
+                        },
+                        legend: {
+                            data: ['종가', '매입 단가별 거래량']
+                        },
+                        xAxis: [
+                            {
+                                type: 'value',
+                                position: 'top',
+                                axisLabel: {show: false},
+                                min: Math.min(...sortedVolumes)  // 거래량 축의 시작점
+                            },
+                            {
+                                type: 'category',
+                                data: response.dates,
+                                axisLabel: {rotate: 45},
+                                boundaryGap: true
+                            }
+                        ],
+                        yAxis: [
+                            {
+                                type: 'category',
+                                data: sortedPrices,
+                                position: 'left'
+                            },
+                            {
+                                type: 'value',
+                                position: 'right',
+                                scale: true,
+                                max: maxPrice,
+                                min: minPrice
+                            }
+                        ],
+                        series: [
+                            {
+                                name: '매입 단가별 거래량',
+                                type: 'bar',
+                                data: sortedVolumes.map((volume, index) => ({
+                                    value: volume,
+                                    itemStyle: {
+                                        color: volume < 0 ? '#ff4d4f' : '#73c0de'  // 양수와 음수 색상 다르게 설정
+                                    }
+                                })),
+                                xAxisIndex: 0,
+                                yAxisIndex: 0,
+                                barWidth: '80%',
+                                itemStyle: {
+                                    opacity: 0.7
+                                }
+                            },
+                            {
+                                name: '종가',
+                                type: 'line',
+                                data: response.closing_prices,
+                                smooth: true,
+                                lineStyle: {color: '#007bff'},
+                                itemStyle: {color: '#007bff'},
+                                xAxisIndex: 1,
+                                yAxisIndex: 1
+                            }
+                        ],
+                        toolbox: {
+                            show: true, // 툴박스 표시
+                            feature: {
+                                saveAsImage: {},
+                                restore: {},
+                                dataZoom: {},
+                                magicType: {
+                                    type: ['line', 'bar']
+                                },
+                                brush: {
+                                    type: ['rect', 'polygon', 'lineX', 'lineY', 'keep', 'clear']
+                                }
+                            },
+                            iconStyle: {
+                                borderColor: 'black' // 툴박스 아이콘 스타일 설정
+                            }
+                        }
+                    };
+
+                    // 차트 옵션 적용
+                    chart.setOption(option);
+                },
+                error: function (error) {
+                    console.log("Error:", error);
+                }
+            });
+        }
+
+        function SetEventTableClick(ele) {
+            $("#ViewStockDetail").click();
+
+            // Get the data from the selected row
+            var itmsNm = $(ele).find("td:eq(0)").text();
+            var corpNm = $(ele).find("td:eq(1)").text();
+            var isinCd = $(ele).find("td:eq(2)").text();
+            StockName = itmsNm;
+            var StockCD = $(ele).find("td:eq(3)").text();
+            var crno = $(ele).find("td:eq(4)").text();
+            var mrktCtg = $(ele).find("td:eq(5)").text();
+
+            $("#ModalTitle").text(mrktCtg + " > " + itmsNm + " > " + isinCd + "[" + StockCD + "]")
+
+            SetStockDetailChart(StockName);
+        }
     </script>
 
 </head>
@@ -370,7 +561,9 @@
                                             </div>
                                             <div class="col-lg-2">
                                                 <h5 class="card-title">투자 점수 및 산출 근거</h5>
-                                                <div class="alert alert-success bg-success text-light border-0 alert-dismissible fade show" id = "StockScore" role="alert" style="text-align: center;font-weight: bold; font-size: 30px; padding: 10px;">
+                                                <div class="alert alert-success bg-success text-light border-0 alert-dismissible fade show"
+                                                     id="StockScore" role="alert"
+                                                     style="text-align: center;font-weight: bold; font-size: 30px; padding: 10px;">
 
                                                 </div>
                                                 <table class="table table-striped">
@@ -380,12 +573,15 @@
                                                         <th scope="col">근거</th>
                                                     </tr>
                                                     </thead>
-                                                    <tbody id = "ScoreReason">
+                                                    <tbody id="ScoreReason">
                                                     </tbody>
                                                 </table>
                                             </div>
-                                            <div class="col-lg-6">
-                                                <h5 class="card-title">투자 통계</h5>
+                                            <div class="col-lg-12">
+                                                <h5 class="card-title">FRPv(Fixed Range Volume Profile) 지표 확인하기
+                                                <button type="button" class="btn btn-primary rounded-pill" id = "GetFRPvChart"></button>
+                                                </h5>
+                                                <div id="FRPvChart" style="width: 100%;min-height: 700px;"></div>
                                             </div>
                                         </div>
 
@@ -409,6 +605,8 @@
                                     <th>단축 코드</th>
                                     <th>법인 코드</th>
                                     <th>구분</th>
+                                    <th>점수</th>
+                                    <th>비고</th>
                                 </tr>
                                 </thead>
                                 <tbody>
@@ -420,6 +618,19 @@
                                         <td>{{ stock.srtnCd }}</td>
                                         <td>{{ stock.crno }}</td>
                                         <td>{{ stock.mrktCtg }}</td>
+                                        <td>{{ stock.db1 }}</td>
+                                        <td>
+                                            {% set score = stock.db1|int %}
+                                            {% if score >= 90 %}
+                                            <button type="button" class="btn btn-success">관심</button>
+                                            {% elif score >= 70 %}
+                                            <button type="button" class="btn btn-primary">관찰</button>
+                                            {% elif score >= 50 %}
+                                            <button type="button" class="btn btn-warning">낮음</button>
+                                            {% else %}
+                                            <button type="button" class="btn btn-danger">주의</button>
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                 {% endfor %}
                                 </tbody>
