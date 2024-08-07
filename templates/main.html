@@ -101,12 +101,13 @@
                     $("#StockScore").text(Score + " 점");
                     // Append reasons to ScoreReason table
                     // Append reasons to ScoreReason table using jQuery
-                    let reasons = response.reasons;
+                    let cost_list = response.cost_list;
                     let scoreReasonTable = $("#ScoreReason");
                     scoreReasonTable.html("");
                     let num = 1;
-                    $.each(reasons, function (index, reason) {
-                        scoreReasonTable.append(`<tr><td>${num}</td><td>${reason}</td></tr>`);
+                    $.each(cost_list, function (index, cost) {
+                        let type = GetTradeType(num - 1)
+                        scoreReasonTable.append(`<tr><td>${num}</td><td>${type}</td><td>${cost}</td></tr>`);
                         num++;
                     });
 
@@ -233,14 +234,13 @@
 
             $("#StockList tbody tr").click(function () {
                 SetEventTableClick(this);
-
             });
+
             $(".datatable-input").on("change", function () {
+                $("#StockList tbody tr").off("click");
 
-                $("#StockList tbody tr").click(function () {
-
+                $("#StockList tbody tr").off().on( "click" , function(){
                     SetEventTableClick(this);
-
                 });
             });
 
@@ -356,7 +356,7 @@
                                 name: '매입 단가별 거래량',
                                 type: 'bar',
                                 data: sortedVolumes.map((volume, index) => ({
-                                    value: volume,
+                                    value: Math.abs(volume),
                                     itemStyle: {
                                         color: volume < 0 ? '#ff4d4f' : '#73c0de'  // 양수와 음수 색상 다르게 설정
                                     }
@@ -570,7 +570,8 @@
                                                     <thead>
                                                     <tr>
                                                         <th scope="col">#</th>
-                                                        <th scope="col">근거</th>
+                                                        <th scope="col">투자자</th>
+                                                        <th scope="col">평균단가</th>
                                                     </tr>
                                                     </thead>
                                                     <tbody id="ScoreReason">

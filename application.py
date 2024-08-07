@@ -44,9 +44,11 @@ def update_scores():
         try:
             data = get_stock_data_from_json(stock.itmsNm)  # 주식 데이터 DataFrame 가져오기
             score = data["score"]  # DataFrame에서 score의 평균을 계산
+            grade = data["grade"]
 
             # 점수를 db1 컬럼에 업데이트
             stock.db1 = score
+            stock.db2 = grade
             stock.save()  # 데이터베이스에 저장
             print(f"종목 : {stock.itmsNm} / Score : {score:.2f}")
         except Exception as e:
@@ -200,6 +202,27 @@ def get_stock_data_from_json(stock, frequency='daily'):
 
     # 누적 합 계산
     accumulated_tradevals_list = {f'TradeValSum{i}': df[f'tradeval{i}'].cumsum().tolist() for i in range(11)}
+    accumulated_tradecnts_list = {f'TradeCntSum{i}': df[f'tradecnt{i}'].cumsum().tolist() for i in range(11)}
+
+    # Initialize cost_list to store average prices
+    cost_list = {}
+
+    # Calculate the average prices
+    for i in range(11):  # Adjust the range according to your number of columns
+        TotalSum = accumulated_tradevals_list[f'TradeValSum{i}'][len(accumulated_tradevals_list[f'TradeValSum{i}']) - 1]
+        TotalCnt = accumulated_tradecnts_list[f'TradeCntSum{i}'][len(accumulated_tradecnts_list[f'TradeCntSum{i}']) - 1]
+
+        # Calculate the average price
+        print("순 매수금액 : "+str(TotalSum)+" / 순 매수량 : "+str(TotalCnt))
+        cost_list[f'{i}'] = int(TotalSum / TotalCnt)
+
+        if cost_list[f'{i}'] < 0 :
+            cost_list[f'{i}'] = 0
+
+    # Output the final average prices
+    print("Final Average Prices:")
+    print(cost_list)
+
     tradevals = {f'TradeVal{i}': df[f'tradeval{i}'].tolist() for i in range(11)}
     tradeCnts = {f'TradeCnt{i}': df[f'tradecnt{i}'].tolist() for i in range(11)}
 
@@ -214,7 +237,7 @@ def get_stock_data_from_json(stock, frequency='daily'):
     df = calculate_technical_indicators(df)
 
     # 종목별 점수 계산
-    score, reasons = calculate_scores(df)
+    score, grade ,  reasons = calculate_scores(df , accumulated_tradecnts_list)
 
     return {
         "dates": dates,
@@ -224,7 +247,9 @@ def get_stock_data_from_json(stock, frequency='daily'):
         **tradeCnts,
         "closing_prices": closing_prices,
         "score": int(score),
-        "reasons": reasons
+        "reasons": reasons,
+        "cost_list" :cost_list,
+        "grade" :grade
     }
 
 
