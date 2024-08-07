@@ -566,46 +566,47 @@ def calculate_scores(df, accumulated_tradecnts_list):
     add_reason(df['band_contract'], 1, "볼린저 밴드 수축 후 돌파")
 
     # 수급 분석 점수 계산
-    df['foreign_buy_increase'] = np.where(accumulated_tradecnts_list['TradeCntSum9'] > accumulated_tradecnts_list['TradeCntSum9'].shift(1), 1, 0)
-    df['foreign_sell_increase'] = np.where(accumulated_tradecnts_list['TradeCntSum9'] < accumulated_tradecnts_list['TradeCntSum9'].shift(1), -1, 0)
-    add_reason(df['foreign_buy_increase'], 1, "외국인 순매수량 증가")
-    add_reason(df['foreign_sell_increase'], -1, "외국인 순매도량 증가")
+    #    df['foreign_buy_increase'] = np.where(accumulated_tradecnts_list['TradeCntSum9'] > accumulated_tradecnts_list['TradeCntSum9'].shift(1), 1, 0)
+    #   df['foreign_sell_increase'] = np.where(accumulated_tradecnts_list['TradeCntSum9'] < accumulated_tradecnts_list['TradeCntSum9'].shift(1), -1, 0)
+    #   add_reason(df['foreign_buy_increase'], 1, "외국인 순매수량 증가")
+    #   add_reason(df['foreign_sell_increase'], -1, "외국인 순매도량 증가")
 
     # Calculate the ratio of TradeCntSum8 to the sum of TradeCntSum0 to TradeCntSum10
-    accumulated_total = accumulated_tradecnts_list[[f'TradeCntSum{i}' for i in range(11)]].sum(axis=1)
-    trade_ratio = accumulated_tradecnts_list['TradeCntSum8'] / accumulated_total
+    #    accumulated_total = accumulated_tradecnts_list[[f'TradeCntSum{i}' for i in range(11)]].sum(axis=1)
+    #   trade_ratio = accumulated_tradecnts_list['TradeCntSum8'] / accumulated_total
 
     # 개인 순매도량 분석 점수 계산 및 Grade 설정
     grade = "Fail"
 
+
     # Check each condition separately and set grade if any condition is met
-    if ((trade_ratio.shift(10) >= 15) & (trade_ratio.shift(10) <= 60)).any():
-        grade = "A 조건 만족"
-        add_reason(trade_ratio.shift(10), 1, "A 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(10) >= 15) & (trade_ratio.shift(10) <= 60)).any():
+    #    grade = "A 조건 만족"
+    #    add_reason(trade_ratio.shift(10), 1, "A 조건 만족 - 개인 순매도량 조건 만족")
 
-    if ((trade_ratio.shift(20) >= 15) & (trade_ratio.shift(20) <= 60)).any():
-        grade = "B 조건 만족"
-        add_reason(trade_ratio.shift(20), 1, "B 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(20) >= 15) & (trade_ratio.shift(20) <= 60)).any():
+    #    grade = "B 조건 만족"
+    #    add_reason(trade_ratio.shift(20), 1, "B 조건 만족 - 개인 순매도량 조건 만족")
 
-    if ((trade_ratio.shift(40) >= 15) & (trade_ratio.shift(40) <= 60)).any():
-        grade = "C 조건 만족"
-        add_reason(trade_ratio.shift(40), 1, "C 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(40) >= 15) & (trade_ratio.shift(40) <= 60)).any():
+    #    grade = "C 조건 만족"
+    #    add_reason(trade_ratio.shift(40), 1, "C 조건 만족 - 개인 순매도량 조건 만족")
 
-    if ((trade_ratio.shift(60) >= 15) & (trade_ratio.shift(60) <= 60)).any():
-        grade = "D 조건 만족"
-        add_reason(trade_ratio.shift(60), 1, "D 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(60) >= 15) & (trade_ratio.shift(60) <= 60)).any():
+    #    grade = "D 조건 만족"
+    #    add_reason(trade_ratio.shift(60), 1, "D 조건 만족 - 개인 순매도량 조건 만족")
 
-    if ((trade_ratio.shift(120) >= 15) & (trade_ratio.shift(120) <= 70)).any():
-        grade = "E 조건 만족"
-        add_reason(trade_ratio.shift(120), 1, "E 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(120) >= 15) & (trade_ratio.shift(120) <= 70)).any():
+    #    grade = "E 조건 만족"
+    #    add_reason(trade_ratio.shift(120), 1, "E 조건 만족 - 개인 순매도량 조건 만족")
 
-    if ((trade_ratio.shift(240) >= 20) & (trade_ratio.shift(240) <= 70)).any():
-        grade = "F 조건 만족"
-        add_reason(trade_ratio.shift(240), 1, "F 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(240) >= 20) & (trade_ratio.shift(240) <= 70)).any():
+    #    grade = "F 조건 만족"
+    #    add_reason(trade_ratio.shift(240), 1, "F 조건 만족 - 개인 순매도량 조건 만족")
 
-    if ((trade_ratio.shift(480) >= 30) & (trade_ratio.shift(480) <= 70)).any():
-        grade = "G 조건 만족"
-        add_reason(trade_ratio.shift(480), 1, "G 조건 만족 - 개인 순매도량 조건 만족")
+    #if ((trade_ratio.shift(480) >= 30) & (trade_ratio.shift(480) <= 70)).any():
+    #    grade = "G 조건 만족"
+    #    add_reason(trade_ratio.shift(480), 1, "G 조건 만족 - 개인 순매도량 조건 만족")
 
     # 기타 지표 점수 계산
     df['below_33ma'] = np.where(df['clsprc'] < df['MA33'], 1, 0)
