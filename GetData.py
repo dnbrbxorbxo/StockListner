@@ -228,7 +228,7 @@ def GetStockDetailData( Limit , Page):
                   .select().order_by(Stock.id.desc()).limit(Limit).offset(Limit * (Page - 1)))
         print(stocks)
 
-        total_start_date = "20050101"
+        total_start_date = "20240701"
         total_end_date = datetime.now().strftime("%Y%m%d")
 
         date_ranges = generate_date_ranges(total_start_date, total_end_date)
@@ -259,7 +259,6 @@ def GetStockDetailData( Limit , Page):
                 ##########################################
                 print(f"종목 {stock.isinCd} ({stock.itmsNm}) 데이터 가져오는 중... 기간: {start_date} ~ {end_date}")
                 filename = f"투자금액_{stock.itmsNm}_{start_date}_{end_date}.json"
-
 
                 script = f"""
                     var xhr = new XMLHttpRequest();

@@ -232,16 +232,8 @@
                 SetStockDetailChart(StockName);
             });
 
-            $("#StockList tbody tr").click(function () {
+            $(".ViewChart").on("click", function () {
                 SetEventTableClick(this);
-            });
-
-            $(".datatable-input").on("change", function () {
-                $("#StockList tbody tr").off("click");
-
-                $("#StockList tbody tr").off().on( "click" , function(){
-                    SetEventTableClick(this);
-                });
             });
 
             $("#GetFRPvChart").on("click" , function (){
@@ -411,13 +403,14 @@
             $("#ViewStockDetail").click();
 
             // Get the data from the selected row
-            var itmsNm = $(ele).find("td:eq(0)").text();
-            var corpNm = $(ele).find("td:eq(1)").text();
-            var isinCd = $(ele).find("td:eq(2)").text();
+            var itmsNm = $(ele).attr("data-itmsnm");
             StockName = itmsNm;
-            var StockCD = $(ele).find("td:eq(3)").text();
-            var crno = $(ele).find("td:eq(4)").text();
-            var mrktCtg = $(ele).find("td:eq(5)").text();
+            var corpNm = $(ele).attr("data-corpnm");
+            var isinCd = $(ele).attr("data-isincd");
+            var crno = $(ele).attr("data-crno");
+            var mrktCtg = $(ele).attr("data-mrktctg");
+            var StockCD = $(ele).attr("data-srtncd");
+
 
             $("#ModalTitle").text(mrktCtg + " > " + itmsNm + " > " + isinCd + "[" + StockCD + "]")
 
@@ -606,7 +599,9 @@
                                     <th>단축 코드</th>
                                     <th>법인 코드</th>
                                     <th>구분</th>
-                                    <th>점수</th>
+                                    <th>기관(%)</th>
+                                    <th>개인(%)</th>
+                                    <th>외국인(%)</th>
                                     <th>비고</th>
                                 </tr>
                                 </thead>
@@ -619,8 +614,20 @@
                                         <td>{{ stock.srtnCd }}</td>
                                         <td>{{ stock.crno }}</td>
                                         <td>{{ stock.mrktCtg }}</td>
-                                        <td>{{ stock.db1 }}</td>
+                                        <td style="text-align: center;">{{ stock.rate.Rate7 }}</td>
+                                        <td style="text-align: center;">{{ stock.rate.Rate9 }}</td>
+                                        <td style="text-align: center;">{{ stock.rate.Rate10 }}</td>
                                         <td>
+
+                                            <button type="button" class="btn btn-primary ViewChart"
+                                                data-itmsnm = "{{ stock.itmsNm }}"
+                                                data-corpnm = "{{ stock.corpNm }}"
+                                                data-isincd = "{{ stock.isinCd }}"
+                                                data-srtncd = "{{ stock.srtnCd }}"
+                                                data-crno = "{{ stock.crno }}"
+                                                data-mrktctg = "{{ stock.mrktCtg }}" >
+                                                <i class="bi bi-star me-1"></i> 차트보기
+                                            </button>
                                             {% set score = stock.db1|int %}
                                             {% if score >= 90 %}
                                             <button type="button" class="btn btn-success">관심</button>

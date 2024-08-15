@@ -28,10 +28,20 @@ def home():
 def main():
     # 데이터베이스에서 모든 Stock 레코드 가져오기
     # 데이터베이스에서 모든 Stock 레코드를 db1 필드를 정수로 변환하여 내림차순 정렬하여 가져오기
+    # Stock 테이블에서 db1이 0 이상인 레코드를 가져오고, db1을 기준으로 내림차순 정렬
     stocks = (Stock
               .select()
+              .where(Stock.db1 > 0)  # db1 값이 0 이상인 것만 선택
               .order_by(SQL('CAST(db1 AS INTEGER)').desc())
-              .dicts())    # main.html 템플릿으로 렌더링
+              .dicts())  # 결과를 dict 형태로 가져오기
+
+    # db3을 JSON으로 디코딩하여 새로운 컬럼으로 추가
+    for stock in stocks:
+        try:
+            stock['rate'] = json.loads(stock['db3'])  # db3을 JSON 디코딩하여 새로운 컬럼에 저장
+        except (json.JSONDecodeError, TypeError):
+            stock['rate'] = []  # 디코딩에 실패하면 빈 배열로 설정
+
     return render_template('main.html', stocks=stocks)
 
 
@@ -45,10 +55,12 @@ def update_scores():
             data = get_stock_data_from_json(stock.itmsNm)  # 주식 데이터 DataFrame 가져오기
             score = data["score"]  # DataFrame에서 score의 평균을 계산
             grade = data["grade"]
+            accumulation_rates_json = json.dumps(data["accumulation_rates"], indent=4)
 
             # 점수를 db1 컬럼에 업데이트
             stock.db1 = score
             stock.db2 = grade
+            stock.db3 = accumulation_rates_json
             stock.save()  # 데이터베이스에 저장
             print(f"종목 : {stock.itmsNm} / Score : {score:.2f}")
         except Exception as e:
@@ -219,6 +231,8 @@ def get_stock_data_from_json(stock, frequency='daily'):
         if cost_list[f'{i}'] < 0 :
             cost_list[f'{i}'] = 0
 
+
+
     # Output the final average prices
     print("Final Average Prices:")
     print(cost_list)
@@ -231,13 +245,26 @@ def get_stock_data_from_json(stock, frequency='daily'):
         min_value = min(accumulated_tradevals_list[f'TradeValSum{i}'])
         accumulated_tradevals_list[f'TradeValSum{i}'] = [x - min_value for x in accumulated_tradevals_list[f'TradeValSum{i}']]
 
+    # 매집률 계산
+    total_trade_val_sum = sum(accumulated_tradevals_list[f'TradeValSum{i}'][len(accumulated_tradevals_list[f'TradeValSum{i}']) - 1] for i in range(11))
+    print(total_trade_val_sum)
+    accumulation_rates = {}
+    for i in range(11):
+        individual_trade_val_sum = accumulated_tradevals_list[f'TradeValSum{i}'][len(accumulated_tradevals_list[f'TradeValSum{i}']) - 1]
+        print(individual_trade_val_sum)
+        # 매집률 계산 (백분율로 표현)
+        if total_trade_val_sum != 0:
+            accumulation_rates[f'Rate{i}'] = int( (individual_trade_val_sum / total_trade_val_sum) * 100 )
+        else:
+            accumulation_rates[f'Rate{i}'] = 0
+
     closing_prices = df['clsprc'].tolist()
 
     # 기술적 지표 계산
     df = calculate_technical_indicators(df)
 
     # 종목별 점수 계산
-    score, grade ,  reasons = calculate_scores(df , accumulated_tradecnts_list)
+    score, grade , reasons = calculate_scores(df , accumulated_tradecnts_list)
 
     return {
         "dates": dates,
@@ -249,7 +276,8 @@ def get_stock_data_from_json(stock, frequency='daily'):
         "score": int(score),
         "reasons": reasons,
         "cost_list" :cost_list,
-        "grade" :grade
+        "grade" :grade,
+        "accumulation_rates": accumulation_rates  # 매집률 추가
     }
 
 
@@ -334,7 +362,7 @@ def GetStockDetailView():
     ViewType = request.form.get("ViewType")
     print(StockName , ViewType)
     data = get_stock_data_from_json(StockName , ViewType)
-    print(data)
+
     if data:
         return jsonify(data)
     else:
@@ -350,41 +378,6 @@ def GetStockReport():
     else:
         return jsonify({"error": "Stock code not found"}), 404
 
-
-
 if __name__ == '__main__':
-    # if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-    #
-    #     #GetStockData_Thread = threading.Thread(target=GetStockData)
-    #     #GetStockData_Thread.start()
-    #
-        # threads = []
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 1)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 2)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 3)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 4)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 5)))
-        #
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 6)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 7)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 8)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 9)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 10)))
-        #
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 11)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 12)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 13)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 14)))
-        # threads.append(threading.Thread(target=GetStockDetailData, args=( 200, 15)))
-        #
-        # for thread in threads:
-        #     thread.start()
-        #     time.sleep(1)
-        #
-        # for thread in threads:
-        #     thread.join()
-
     # update_scores()
-
-
     app.run(debug=True, port=5500)
